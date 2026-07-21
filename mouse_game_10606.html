@@ -1,0 +1,1437 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>마우스 마법 학교 - 좌우 클릭 연습 게임</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: 어린이 친화적인 둥근 폰트 및 고딕 폰트 적용 -->
+    <link href="https://fonts.googleapis.com/css2?family=Jua&family=Nanum+Gothic:wght@700;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Jua', 'Nanum Gothic', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        /* 마우스 클릭 시 생성되는 반응형 물결 파동 피드백 */
+        .click-ripple {
+            position: absolute;
+            border-radius: 50%;
+            transform: translate(-50%, -50%) scale(0);
+            animation: ripple-out 0.6s ease-out forwards;
+            pointer-events: none;
+            z-index: 9999;
+        }
+        @keyframes ripple-out {
+            to {
+                transform: translate(-50%, -50%) scale(1.5);
+                opacity: 0;
+            }
+        }
+        /* 카드 틀림 방지용 쉐이크 흔들림 애니메이션 */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-6px); }
+            40%, 80% { transform: translateX(6px); }
+        }
+        .animate-shake {
+            animation: shake 0.3s ease-in-out;
+        }
+
+        /* 웅장한 시네마틱 인트로 스타일 정의 */
+        #game-intro-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+            transition: opacity 0.8s ease-in-out, visibility 0.8s;
+        }
+        
+        .intro-title-text {
+            color: #ffffff;
+            font-size: 4.5rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            opacity: 0;
+            transform: scale(0.95);
+            animation: text-fade-in-out 3.2s forwards cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .intro-subtitle-text {
+            color: #ffffff;
+            font-size: 2.2rem;
+            font-weight: 700;
+            letter-spacing: 0.25em;
+            margin-top: 1rem;
+            opacity: 0;
+            transform: scale(0.95);
+            animation: text-fade-in-out 3.2s forwards cubic-bezier(0.4, 0, 0.2, 1);
+            animation-delay: 0.15s;
+        }
+
+        .intro-skip-guide {
+            position: absolute;
+            bottom: 2rem;
+            color: #4b5563;
+            font-size: 0.875rem;
+            font-family: sans-serif;
+            animation: pulse-slow 2s infinite;
+        }
+
+        @keyframes text-fade-in-out {
+            0% {
+                opacity: 0;
+                transform: scale(0.92);
+                filter: blur(8px);
+            }
+            25% {
+                opacity: 1;
+                transform: scale(1);
+                filter: blur(0px);
+            }
+            75% {
+                opacity: 1;
+                transform: scale(1);
+                filter: blur(0px);
+            }
+            100% {
+                opacity: 0;
+                transform: scale(1.05);
+                filter: blur(8px);
+            }
+        }
+
+        @keyframes pulse-slow {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 0.8; }
+        }
+
+        /* 프린트 인쇄 레이아웃 제어 (임명장 출력 영역만 활성화) */
+        @media print {
+            body * {
+                visibility: hidden;
+            }
+            #certificate-print-area, #certificate-print-area * {
+                visibility: visible;
+            }
+            #certificate-print-area {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-b from-indigo-100 via-purple-50 to-pink-100 min-h-screen flex flex-col justify-between overflow-x-hidden">
+
+<div id="game-intro-overlay" onclick="skipIntro()">
+    <div class="text-center select-none">
+        <div class="intro-title-text">박성현</div>
+        <div class="intro-subtitle-text">제작</div>
+    </div>
+    <div class="intro-skip-guide">화면을 마우스로 클릭하면 건너뜁니다</div>
+</div>
+
+<script>
+    let audioCtx = null;
+
+    // 사용자 액션 수반 시 오디오 컨텍스트 기동 (브라우저 보안 제어 회피)
+    function initAudio() {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+    }
+
+    // 주파수 변조를 통한 귀여운 음향 직접 발생
+    function playSound(type) {
+        try {
+            initAudio();
+            const now = audioCtx.currentTime;
+            
+            if (type === 'left') {
+                // 경쾌한 마우스 좌클릭 팝 소리
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(587.33, now); // D5
+                osc.frequency.exponentialRampToValueAtTime(1174.66, now + 0.08); // D6
+                
+                gain.gain.setValueAtTime(0.15, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+                
+                osc.start(now);
+                osc.stop(now + 0.08);
+            } else if (type === 'right') {
+                // 맑은 울림을 선사하는 우클릭 사운드
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(392.00, now); // G4
+                osc.frequency.exponentialRampToValueAtTime(783.99, now + 0.12); // G5
+                
+                gain.gain.setValueAtTime(0.2, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+                
+                osc.start(now);
+                osc.stop(now + 0.12);
+            } else if (type === 'pop') {
+                // 풍선이나 목표물 타격음
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(800, now);
+                osc.frequency.exponentialRampToValueAtTime(150, now + 0.15);
+                
+                gain.gain.setValueAtTime(0.2, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+                
+                osc.start(now);
+                osc.stop(now + 0.15);
+            } else if (type === 'correct') {
+                // 정답 맞춤 딩동댕 3화음
+                playTone(523.25, 0.1, 0.1); // C5
+                setTimeout(() => playTone(659.25, 0.1, 0.1), 100); // E5
+                setTimeout(() => playTone(783.99, 0.15, 0.1), 200); // G5
+            } else if (type === 'wrong') {
+                // 클릭 오류 경고음
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(220, now);
+                osc.frequency.linearRampToValueAtTime(150, now + 0.2);
+                
+                gain.gain.setValueAtTime(0.12, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.22);
+                
+                osc.start(now);
+                osc.stop(now + 0.22);
+            } else if (type === 'level-up') {
+                // 단계 완료 축하 팡파레
+                const notes = [523.25, 659.25, 783.99, 1046.50];
+                notes.forEach((freq, idx) => {
+                    setTimeout(() => playTone(freq, 0.15, 0.1), idx * 120);
+                });
+            } else if (type === 'hit') {
+                // 방어 결계 충돌 묵직한 타격음
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(100, now);
+                osc.frequency.linearRampToValueAtTime(40, now + 0.3);
+                
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+                
+                osc.start(now);
+                osc.stop(now + 0.35);
+            }
+        } catch (e) {
+            console.log('Audio Context Error:', e);
+        }
+    }
+
+    function playTone(freq, duration, volume) {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        const now = audioCtx.currentTime;
+        osc.frequency.setValueAtTime(freq, now);
+        gain.gain.setValueAtTime(volume, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+        osc.start(now);
+        osc.stop(now + duration);
+    }
+</script>
+
+<header class="bg-white/80 backdrop-blur-md border-b-4 border-indigo-200 py-3 px-6 sticky top-0 z-50 shadow-md">
+    <div class="max-w-5xl mx-auto flex flex-wrap justify-between items-center gap-4">
+        <div class="flex items-center gap-3">
+            <div class="bg-indigo-500 text-white p-2 rounded-2xl shadow-inner animate-bounce">
+                <!-- 귀여운 쥐 마법사 전용 캐릭터 SVG 아이콘 -->
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+            </div>
+            <div>
+                <h1 class="text-2xl md:text-3xl text-indigo-700 tracking-wider">🖱️ 마우스 마법 학교</h1>
+                <p class="text-xs text-indigo-500 font-sans font-bold">좌클릭과 우클릭 마법을 마스터하여 마법사 인증서를 받자!</p>
+            </div>
+        </div>
+
+        <!-- 실시간 마법사명 설정창 -->
+        <div class="flex items-center gap-3 bg-indigo-50 p-2 rounded-xl border-2 border-indigo-200">
+            <span class="text-sm font-sans font-bold text-indigo-800">꿈나무 마법사:</span>
+            <input type="text" id="player-name-input" value="도토리" class="px-2 py-1 bg-white rounded-lg border border-indigo-300 text-sm font-sans font-semibold text-center w-24 outline-none focus:ring-2 focus:ring-indigo-400" placeholder="이름을 입력하세요">
+        </div>
+    </div>
+</header>
+
+<main class="flex-grow flex items-center justify-center p-4 max-w-5xl w-full mx-auto">
+    <div class="w-full bg-white rounded-3xl border-8 border-indigo-300 shadow-2xl p-6 relative overflow-hidden min-h-[500px] flex flex-col justify-between">
+        
+        <!-- 단계 표시 상태 패널 (총 5단계 고난도 수련 과정 매핑) -->
+        <div class="flex justify-between items-center gap-2 mb-6 border-b border-gray-100 pb-4">
+            <div class="flex gap-1.5 text-xs md:text-sm font-bold flex-wrap">
+                <span id="step-btn-0" class="px-2.5 py-1.5 rounded-full bg-indigo-500 text-white shadow-sm">마법 연습실</span>
+                <span id="step-btn-1" class="px-2.5 py-1.5 rounded-full bg-gray-200 text-gray-500">1단계: 풍선</span>
+                <span id="step-btn-2" class="px-2.5 py-1.5 rounded-full bg-gray-200 text-gray-500">2단계: 정원</span>
+                <span id="step-btn-3" class="px-2.5 py-1.5 rounded-full bg-gray-200 text-gray-500">3단계: 카드</span>
+                <span id="step-btn-4" class="px-2.5 py-1.5 rounded-full bg-gray-200 text-gray-500">4단계: 장막</span>
+                <span id="step-btn-5" class="px-2.5 py-1.5 rounded-full bg-gray-200 text-gray-500">5단계: 두더지</span>
+            </div>
+            <div class="text-indigo-600 font-bold text-sm bg-indigo-50 px-3 py-1.5 rounded-xl border border-indigo-100 whitespace-nowrap">
+                ⭐ 점수: <span id="game-score">0</span>점
+            </div>
+        </div>
+
+        <!-- 플레이 화면 제어 영역 -->
+        <div class="flex-grow flex flex-col justify-center items-center relative min-h-[360px]" id="stage-viewport">
+            
+            <!-- START SCREEN: 마법학교 정문 로비 -->
+            <div id="screen-start" class="text-center max-w-xl mx-auto space-y-6">
+                <div class="relative inline-block">
+                    <svg class="w-32 h-32 mx-auto filter drop-shadow-lg" viewBox="0 0 100 100">
+                        <!-- 마법 모자 -->
+                        <path d="M 50,5 L 25,45 L 75,45 Z" fill="#6366f1" />
+                        <ellipse cx="50" cy="45" rx="30" ry="6" fill="#4f46e5" />
+                        <path d="M 40,30 L 60,30" stroke="#f59e0b" stroke-width="4" />
+                        <!-- 귀여운 쥐 얼굴 본체 -->
+                        <circle cx="50" cy="65" r="22" fill="#e2e8f0" />
+                        <!-- 귀 -->
+                        <circle cx="28" cy="50" r="12" fill="#cbd5e1" />
+                        <circle cx="28" cy="50" r="8" fill="#f472b6" />
+                        <circle cx="72" cy="50" r="12" fill="#cbd5e1" />
+                        <circle cx="72" cy="50" r="8" fill="#f472b6" />
+                        <!-- 눈, 수염, 마우스 모양의 코 -->
+                        <circle cx="42" cy="62" r="3" fill="#1e293b" />
+                        <circle cx="58" cy="62" r="3" fill="#1e293b" />
+                        <polygon points="46,70 54,70 50,75" fill="#f472b6" />
+                        <path d="M 40,73 L 25,71 M 40,75 L 23,76" stroke="#94a3b8" stroke-width="1.5" />
+                        <path d="M 60,73 L 75,71 M 60,75 L 77,76" stroke="#94a3b8" stroke-width="1.5" />
+                        <!-- 마법 보석 구체 장식 -->
+                        <circle cx="50" cy="10" r="4" fill="#fbbf24" class="animate-ping" />
+                    </svg>
+                </div>
+                <h2 class="text-3xl md:text-4xl text-indigo-800 font-extrabold leading-tight">마우스의 좌클릭과 우클릭을<br>마스터해 볼까요?</h2>
+                
+                <div class="flex justify-center">
+                    <span class="text-indigo-600 font-bold text-sm bg-indigo-50/80 px-4 py-1.5 rounded-full border-2 border-indigo-200 shadow-sm tracking-wide">
+                        🛠️ 제작자: 박성현
+                    </span>
+                </div>
+
+                <p class="text-gray-600 leading-relaxed font-sans font-medium text-sm md:text-base">
+                    컴퓨터 마우스는 왼쪽과 오른쪽 버튼의 쓰임새가 다릅니다!<br>
+                    총 5단계의 신기한 마법 과제들을 통과하고 멋진 <span class="text-amber-600 font-bold">마우스 마법사 임명장</span>을 얻어 보세요.
+                </p>
+                <div class="bg-amber-50 border-2 border-amber-200 rounded-2xl p-4 text-amber-950 font-sans text-xs md:text-sm text-left leading-relaxed">
+                    ⚠️ <strong>꼭 읽어주세요!</strong> 이 교육 게임은 실제 마우스 감각 숙달을 위해 모바일 터치보다는 <span class="underline font-bold text-red-600">컴퓨터 마우스 기기 사용을 강력 권장합니다!</span>
+                </div>
+                <button onclick="startGame()" class="px-8 py-4 bg-gradient-to-r from-emerald-400 to-teal-500 text-white rounded-2xl text-2xl shadow-lg hover:brightness-105 active:scale-95 transition-all transform hover:-translate-y-1">
+                    신나게 시작하기! ✨
+                </button>
+            </div>
+
+            <!-- STAGE 0: TUTORIAL: 마법 연습장 -->
+            <div id="screen-tutorial" class="hidden w-full text-center space-y-6">
+                <div class="bg-indigo-50 p-4 rounded-2xl max-w-lg mx-auto">
+                    <p class="text-lg text-indigo-900 font-bold">화면 아무 데나 마음껏 클릭해 보세!</p>
+                    <p class="text-sm text-gray-500 font-sans">왼쪽 클릭을 3번, 오른쪽 클릭을 3번 성공하여 관문을 봉인 해제하게나.</p>
+                </div>
+
+                <div class="flex flex-col md:flex-row items-center justify-center gap-8 py-4">
+                    <!-- 가상 반응형 입체 마우스 일러스트 -->
+                    <div class="relative w-48 h-72 bg-gray-100 rounded-[5rem] border-8 border-gray-400 shadow-xl overflow-hidden flex flex-col justify-start">
+                        <!-- 중앙 물리 구분선 -->
+                        <div class="absolute top-0 left-1/2 w-2 h-32 bg-gray-400 -translate-x-1/2"></div>
+                        <div class="absolute top-32 left-0 w-full h-2 bg-gray-400"></div>
+                        <!-- 마우스 휠 센서 -->
+                        <div class="absolute top-8 left-1/2 w-4 h-12 bg-amber-500 rounded-full -translate-x-1/2 z-10 border border-amber-600 animate-pulse"></div>
+
+                        <!-- 가상 좌클릭 버튼 상태 영역 -->
+                        <div id="virtual-mouse-left" class="absolute top-0 left-0 w-1/2 h-32 bg-white flex items-center justify-center transition-all">
+                            <span class="text-2xl font-bold text-gray-300">좌(L)</span>
+                        </div>
+                        <!-- 가상 우클릭 버튼 상태 영역 -->
+                        <div id="virtual-mouse-right" class="absolute top-0 right-0 w-1/2 h-32 bg-white flex items-center justify-center transition-all">
+                            <span class="text-2xl font-bold text-gray-300">우(R)</span>
+                        </div>
+                        <div class="absolute bottom-0 w-full h-40 bg-gray-200 flex items-center justify-center">
+                            <span class="text-xs text-gray-400 font-sans font-bold">MOUSE</span>
+                        </div>
+                    </div>
+
+                    <!-- 미션 카운터 보드 -->
+                    <div class="space-y-4 text-left w-64 bg-slate-50 p-5 rounded-2xl border-4 border-slate-200">
+                        <h4 class="text-lg font-bold text-slate-800 border-b pb-2 mb-2">클릭 마법 요건</h4>
+                        <div class="flex justify-between items-center">
+                            <span class="text-blue-600 text-lg">🔵 좌클릭 주문서</span>
+                            <span class="bg-blue-100 text-blue-800 font-mono px-3 py-1 rounded-lg text-lg font-bold"><span id="count-left">0</span> / 3</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-pink-600 text-lg">🔴 우클릭 주문서</span>
+                            <span class="bg-pink-100 text-pink-800 font-mono px-3 py-1 rounded-lg text-lg font-bold"><span id="count-right">0</span> / 3</span>
+                        </div>
+                        <div id="tutorial-tip" class="text-sm font-sans font-semibold text-center text-emerald-600 bg-emerald-50 p-2 rounded-xl border border-emerald-100 mt-2 animate-bounce hidden">
+                            통과 성공! 다음 단계 버튼을 누르세요!
+                        </div>
+                        <button id="btn-tutorial-next" disabled onclick="goToStage(1)" class="w-full py-3 bg-gray-300 text-white font-bold rounded-xl shadow-md transition-all cursor-not-allowed">
+                            1단계 풍선 수련장 가기 🎈
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- STAGE 1: BUBBLE POPPER: 비행 풍선 마법 -->
+            <div id="screen-bubble" class="hidden w-full h-full relative flex flex-col justify-between">
+                <div class="bg-indigo-50 p-3 rounded-2xl text-center max-w-xl mx-auto mb-4">
+                    <p class="text-base text-indigo-900 font-bold">🔵 파란 풍선은 <span class="text-blue-600 underline">좌클릭</span>! 💗 분홍 풍선은 <span class="text-pink-600 underline">우클릭</span>!</p>
+                    <p class="text-xs text-gray-500 font-sans">떠오르는 풍선들을 터트려 마법을 채워 넣으세요. (목표: 10개)</p>
+                </div>
+                <div id="bubble-container" class="relative w-full h-80 bg-gradient-to-t from-sky-100 to-indigo-50 rounded-2xl border-4 border-dashed border-sky-300 overflow-hidden cursor-crosshair">
+                    <div id="bubble-count-indicator" class="absolute top-2 left-2 bg-white/90 backdrop-blur px-3 py-1 rounded-lg border text-sm font-bold text-gray-700 z-10">
+                        수집 완료: <span id="pop-count">0</span> / 10
+                    </div>
+                </div>
+            </div>
+
+            <!-- STAGE 2: MAGIC GARDEN: 수확의 꽃밭 -->
+            <div id="screen-garden" class="hidden w-full text-center space-y-4">
+                <div class="bg-indigo-50 p-3 rounded-2xl max-w-xl mx-auto">
+                    <p class="text-base text-indigo-900 font-bold">🌱 순서대로 화분을 관리해 신비한 꽃을 수확해 보게나!</p>
+                    <p class="text-xs text-gray-500 font-sans">1. 빈 흙에 <span class="text-pink-600 underline font-bold">우클릭</span>으로 씨심기 ➡️ 2. 새싹에 <span class="text-blue-600 underline font-bold">좌클릭</span>으로 시원한 물주기 ➡️ 3. 피어난 꽃을 <span class="text-blue-600 underline font-bold">좌클릭</span>으로 수확!</p>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-6 max-w-3xl mx-auto py-2">
+                    <!-- 화분 1 -->
+                    <div id="pot-0" onclick="handlePotClick(0, 'left')" oncontextmenu="handlePotClick(0, 'right'); return false;" class="bg-amber-50 hover:bg-amber-100 border-4 border-amber-300 rounded-3xl p-4 flex flex-col items-center justify-between h-56 shadow-md transition-all transform hover:scale-105 cursor-pointer">
+                        <div class="text-xs bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-bold">1번 화분</div>
+                        <div id="pot-img-0" class="text-5xl my-2">🟫</div>
+                        <div id="pot-desc-0" class="text-sm font-sans font-bold text-amber-900">비어있는 흙</div>
+                        <div id="pot-hint-0" class="text-xs bg-pink-500 text-white font-sans px-2 py-1 rounded-lg mt-2 animate-pulse font-bold">🌱 우클릭하여 심기</div>
+                    </div>
+                    <!-- 화분 2 -->
+                    <div id="pot-1" onclick="handlePotClick(1, 'left')" oncontextmenu="handlePotClick(1, 'right'); return false;" class="bg-amber-50 hover:bg-amber-100 border-4 border-amber-300 rounded-3xl p-4 flex flex-col items-center justify-between h-56 shadow-md transition-all transform hover:scale-105 cursor-pointer">
+                        <div class="text-xs bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-bold">2번 화분</div>
+                        <div id="pot-img-1" class="text-5xl my-2">🟫</div>
+                        <div id="pot-desc-1" class="text-sm font-sans font-bold text-amber-900">비어있는 흙</div>
+                        <div id="pot-hint-1" class="text-xs bg-pink-500 text-white font-sans px-2 py-1 rounded-lg mt-2 animate-pulse font-bold">🌱 우클릭하여 심기</div>
+                    </div>
+                    <!-- 화분 3 -->
+                    <div id="pot-2" onclick="handlePotClick(2, 'left')" oncontextmenu="handlePotClick(2, 'right'); return false;" class="bg-amber-50 hover:bg-amber-100 border-4 border-amber-300 rounded-3xl p-4 flex flex-col items-center justify-between h-56 shadow-md transition-all transform hover:scale-105 cursor-pointer">
+                        <div class="text-xs bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-bold">3번 화분</div>
+                        <div id="pot-img-2" class="text-5xl my-2">🟫</div>
+                        <div id="pot-desc-2" class="text-sm font-sans font-bold text-amber-900">비어있는 흙</div>
+                        <div id="pot-hint-2" class="text-xs bg-pink-500 text-white font-sans px-2 py-1 rounded-lg mt-2 animate-pulse font-bold">🌱 우클릭하여 심기</div>
+                    </div>
+                </div>
+
+                <div class="text-center">
+                    <p class="text-sm font-sans text-indigo-700">마법 꽃 수확: <span id="garden-count" class="font-bold text-lg text-emerald-600">0</span> / 5 송이</p>
+                    <div class="w-48 bg-gray-200 h-3 rounded-full mx-auto overflow-hidden mt-1">
+                        <div id="garden-progress" class="bg-emerald-500 h-full w-0 transition-all"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- STAGE 3: SPELL MEMORY MATCH: 마법 문양 비억 카드 게임 -->
+            <div id="screen-card-match" class="hidden w-full text-center space-y-4">
+                <div class="bg-indigo-50 p-3 rounded-2xl max-w-xl mx-auto">
+                    <p class="text-base text-indigo-900 font-bold">🃏 카드 뒷면의 마법 표식을 알맞게 눌러 지혜를 얻으세요!</p>
+                    <p class="text-xs text-gray-500 font-sans">🔵 파란 카드 뒷면은 <span class="text-blue-600 font-bold">좌클릭</span>! 🔴 분홍 카드 뒷면은 <span class="text-pink-600 font-bold">우클릭</span>으로만 해제됩니다!</p>
+                </div>
+
+                <div id="card-grid" class="grid grid-cols-4 gap-4 max-w-lg mx-auto py-4">
+                    <!-- 자바스크립트로 8개 카드가 정적 조합 배열 형태로 렌더링 -->
+                </div>
+
+                <div class="text-center">
+                    <p class="text-sm font-sans text-indigo-700">봉인 해제된 카드 짝: <span id="card-match-count" class="font-bold text-lg text-purple-600">0</span> / 4 쌍</p>
+                </div>
+            </div>
+
+            <!-- STAGE 4: ELEMENT SHIELD DEFENSE: 성벽 마법 방어 -->
+            <div id="screen-magic-defense" class="hidden w-full h-full relative flex flex-col justify-between">
+                <div class="bg-indigo-50 p-3 rounded-2xl text-center max-w-xl mx-auto mb-4">
+                    <p class="text-base text-indigo-900 font-bold">🛡️ 사방에서 성을 침공해오는 원소 정령들을 격퇴하세요!</p>
+                    <p class="text-xs text-gray-500 font-sans">파란색 얼음 구체❄️는 <span class="text-blue-600 font-bold">좌클릭</span>으로! 분홍색 화염 구체🔥는 <span class="text-pink-600 font-bold">우클릭</span>으로 저격!</p>
+                </div>
+
+                <div id="defense-container" class="relative w-full h-80 bg-slate-900 rounded-3xl border-4 border-slate-700 overflow-hidden cursor-crosshair">
+                    <!-- 중앙 요새 수비 성 -->
+                    <div id="magic-shield" class="absolute top-1/2 left-1/2 w-20 h-20 bg-indigo-500/20 border-4 border-indigo-400 rounded-full -translate-x-1/2 -translate-y-1/2 flex flex-col items-center justify-center shadow-[0_0_20px_rgba(99,102,241,0.5)] transition-all">
+                        <span class="text-2xl animate-pulse">🏰</span>
+                        <span id="defense-hp-display" class="text-xs text-rose-400 font-sans font-bold">❤️❤️❤️</span>
+                    </div>
+
+                    <div class="absolute top-3 left-3 bg-black/60 backdrop-blur px-3 py-1 rounded-lg border border-slate-600 text-xs font-bold text-slate-300 z-10">
+                        격퇴수: <span id="defense-kill-count" class="text-emerald-400 font-mono text-sm">0</span> / 10
+                    </div>
+                </div>
+            </div>
+
+            <!-- STAGE 5: MOLE PANIC: 장난꾸러기 두더지 습격 -->
+            <div id="screen-mole" class="hidden w-full text-center space-y-4">
+                <div class="bg-indigo-50 p-3 rounded-2xl max-w-xl mx-auto">
+                    <p class="text-base text-indigo-900 font-bold">🐹 두더지가 들고나오는 지시 문구를 잘 보세요!</p>
+                    <p class="text-xs text-gray-500 font-sans">파랑 지시판 두더지 = <span class="text-blue-600 font-bold">좌클릭</span> | 분홍 지시판 두더지 = <span class="text-pink-600 font-bold">우클릭</span>!</p>
+                </div>
+
+                <div class="grid grid-cols-3 gap-4 max-w-md mx-auto py-2">
+                    <!-- 구멍 1 ~ 6 -->
+                    <div id="hole-0" onclick="handleMoleClick(0, 'left')" oncontextmenu="handleMoleClick(0, 'right'); return false;" class="relative h-24 bg-amber-800 rounded-b-2xl border-t-8 border-amber-900 overflow-hidden cursor-pointer shadow-inner">
+                        <div id="mole-0" class="absolute bottom-[-100%] left-0 w-full h-full flex flex-col items-center justify-center transition-all duration-150 transform select-none">
+                            <div class="text-4xl mole-character">🐹</div>
+                            <span class="mole-badge text-xs px-2 py-0.5 rounded-full text-white font-bold font-sans">좌클릭!</span>
+                        </div>
+                    </div>
+                    <div id="hole-1" onclick="handleMoleClick(1, 'left')" oncontextmenu="handleMoleClick(1, 'right'); return false;" class="relative h-24 bg-amber-800 rounded-b-2xl border-t-8 border-amber-900 overflow-hidden cursor-pointer shadow-inner">
+                        <div id="mole-1" class="absolute bottom-[-100%] left-0 w-full h-full flex flex-col items-center justify-center transition-all duration-150 transform select-none">
+                            <div class="text-4xl mole-character">🐹</div>
+                            <span class="mole-badge text-xs px-2 py-0.5 rounded-full text-white font-bold font-sans">좌클릭!</span>
+                        </div>
+                    </div>
+                    <div id="hole-2" onclick="handleMoleClick(2, 'left')" oncontextmenu="handleMoleClick(2, 'right'); return false;" class="relative h-24 bg-amber-800 rounded-b-2xl border-t-8 border-amber-900 overflow-hidden cursor-pointer shadow-inner">
+                        <div id="mole-2" class="absolute bottom-[-100%] left-0 w-full h-full flex flex-col items-center justify-center transition-all duration-150 transform select-none">
+                            <div class="text-4xl mole-character">🐹</div>
+                            <span class="mole-badge text-xs px-2 py-0.5 rounded-full text-white font-bold font-sans">좌클릭!</span>
+                        </div>
+                    </div>
+                    <div id="hole-3" onclick="handleMoleClick(3, 'left')" oncontextmenu="handleMoleClick(3, 'right'); return false;" class="relative h-24 bg-amber-800 rounded-b-2xl border-t-8 border-amber-900 overflow-hidden cursor-pointer shadow-inner">
+                        <div id="mole-3" class="absolute bottom-[-100%] left-0 w-full h-full flex flex-col items-center justify-center transition-all duration-150 transform select-none">
+                            <div class="text-4xl mole-character">🐹</div>
+                            <span class="mole-badge text-xs px-2 py-0.5 rounded-full text-white font-bold font-sans">좌클릭!</span>
+                        </div>
+                    </div>
+                    <div id="hole-4" onclick="handleMoleClick(4, 'left')" oncontextmenu="handleMoleClick(4, 'right'); return false;" class="relative h-24 bg-amber-800 rounded-b-2xl border-t-8 border-amber-900 overflow-hidden cursor-pointer shadow-inner">
+                        <div id="mole-4" class="absolute bottom-[-100%] left-0 w-full h-full flex flex-col items-center justify-center transition-all duration-150 transform select-none">
+                            <div class="text-4xl mole-character">🐹</div>
+                            <span class="mole-badge text-xs px-2 py-0.5 rounded-full text-white font-bold font-sans">좌클릭!</span>
+                        </div>
+                    </div>
+                    <div id="hole-5" onclick="handleMoleClick(5, 'left')" oncontextmenu="handleMoleClick(5, 'right'); return false;" class="relative h-24 bg-amber-800 rounded-b-2xl border-t-8 border-amber-900 overflow-hidden cursor-pointer shadow-inner">
+                        <div id="mole-5" class="absolute bottom-[-100%] left-0 w-full h-full flex flex-col items-center justify-center transition-all duration-150 transform select-none">
+                            <div class="text-4xl mole-character">🐹</div>
+                            <span class="mole-badge text-xs px-2 py-0.5 rounded-full text-white font-bold font-sans">좌클릭!</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex justify-between items-center max-w-md mx-auto px-4 font-sans text-sm font-bold text-gray-700">
+                    <div>제한시간: <span id="mole-timer" class="text-red-500 font-mono text-lg">20</span>초</div>
+                    <div>적중 수: <span id="mole-score" class="text-indigo-600 font-mono text-lg">0</span> / 10</div>
+                </div>
+            </div>
+
+            <!-- STAGE 6: CERTIFICATE: 마우스 명예훈장 상장 인쇄소 -->
+            <div id="screen-certificate" class="hidden w-full text-center space-y-6">
+                <div id="certificate-print-area" class="bg-amber-50 p-6 md:p-10 rounded-3xl border-8 border-double border-amber-500 max-w-2xl mx-auto shadow-xl relative overflow-hidden font-sans">
+                    <div class="absolute inset-0 border-4 border-amber-200/50 rounded-2xl pointer-events-none"></div>
+                    <div class="absolute -top-12 -left-12 w-24 h-24 rounded-full bg-amber-300/20 blur-xl"></div>
+                    <div class="absolute -bottom-12 -right-12 w-24 h-24 rounded-full bg-amber-300/20 blur-xl"></div>
+                    
+                    <div class="mx-auto w-16 h-16 bg-gradient-to-r from-amber-400 to-yellow-500 rounded-full flex items-center justify-center shadow-md border-4 border-white mb-4">
+                        <span class="text-3xl">🏅</span>
+                    </div>
+
+                    <h3 class="text-3xl md:text-4xl text-amber-800 font-extrabold tracking-widest text-center mb-6">마우스 마법사 임명장</h3>
+                    
+                    <div class="space-y-4 text-center text-gray-800 md:text-lg leading-relaxed px-2 font-semibold">
+                        <p class="text-xl md:text-2xl text-indigo-900 border-b-2 border-indigo-200 inline-block px-4 pb-1 mb-2 font-bold">
+                            임명자: <span id="certificate-player-name" class="font-black text-amber-600">도토리</span> 마법사
+                        </p>
+                        <p class="text-sm md:text-base text-gray-600 font-medium">
+                            위 마법사는 마우스 마법 학교의 모든 수련 과제인<br>
+                            <span class="text-indigo-600 font-bold">[마우스 연습실 ➡️ 1단계 풍선 ➡️ 2단계 꽃밭 ➡️ 3단계 기억카드 ➡️ 4단계 결계수비 ➡️ 5단계 두더지]</span>를<br>
+                            성실하고 우수한 성적으로 완수하였기에 이 공식 명예 자격증을 수여합니다.
+                        </p>
+                    </div>
+
+                    <div class="mt-8 text-right text-gray-500 text-xs md:text-sm">
+                        <p id="certificate-date">2026년 7월 14일</p>
+                        <p class="text-sm font-bold text-gray-700">마우스 마법 학교 교장 드림 🧙‍♂️</p>
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap justify-center gap-4">
+                    <button onclick="window.print()" class="px-6 py-3 bg-indigo-500 text-white font-bold rounded-xl shadow-md hover:bg-indigo-600 active:scale-95 transition-all">
+                        🖨️ 임명장 인쇄하기
+                    </button>
+                    <button onclick="restartGame()" class="px-6 py-3 bg-emerald-500 text-white font-bold rounded-xl shadow-md hover:bg-emerald-600 active:scale-95 transition-all">
+                        🔄 처음부터 도전하기
+                    </button>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- 하단 멘토 마법사 조언 피드백 창 -->
+        <div class="mt-6 border-t border-gray-100 pt-4 flex items-center gap-4 bg-indigo-50/50 p-4 rounded-2xl">
+            <div class="w-12 h-12 rounded-full bg-indigo-200 flex-shrink-0 flex items-center justify-center text-2xl animate-pulse">
+                🧙‍♂️
+            </div>
+            <div class="text-left">
+                <h5 class="text-indigo-900 font-bold text-sm">마법 교수님의 지도서</h5>
+                <p id="assistant-bubble" class="text-xs text-gray-600 leading-relaxed font-sans font-medium">
+                    마우스 마법 학교에 온 것을 뜨겁게 축하한다네! 시작 버튼을 눌러 첫 전수를 받아보게나!
+                </p>
+            </div>
+        </div>
+
+    </div>
+</main>
+
+<footer class="bg-gray-100 border-t py-4 text-center text-xs text-gray-400 font-sans mt-4">
+    <p>© 2026 마우스 마법 학교 (제작: 박성현). 초등학교 정보통신기술 마우스 교육 과정 가이드라인 준수.</p>
+</footer>
+
+<script>
+    let currentStage = -1; // -1: 시작 대기, 0: 튜토리얼, 1: 풍선, 2: 마법정원, 3: 카드매치, 4: 장막디펜스, 5: 두더지, 6: 임명장
+    let score = 0;
+    let playerName = "도토리";
+
+    let introTimer = null;
+
+    // 초기 로드 시 시네마틱 오프닝 타이머 가동
+    window.onload = function() {
+        introTimer = setTimeout(() => {
+            skipIntro();
+        }, 3600);
+    }
+
+    // 인트로 건너뛰기 기능
+    function skipIntro() {
+        const introOverlay = document.getElementById('game-intro-overlay');
+        if (introOverlay) {
+            introOverlay.style.opacity = '0';
+            introOverlay.style.visibility = 'hidden';
+            setTimeout(() => {
+                introOverlay.remove();
+            }, 800);
+        }
+        if (introTimer) {
+            clearTimeout(introTimer);
+        }
+    }
+
+    // 0단계 변수
+    let tutorialLeftCount = 0;
+    let tutorialRightCount = 0;
+
+    // 1단계 변수
+    let bubblePopCount = 0;
+    let bubbleInterval = null;
+    const maxBubbles = 10;
+
+    // 2단계 변수
+    let potStates = [0, 0, 0];
+    let harvestCount = 0;
+
+    // 3단계 변수
+    let cards = [];
+    let flippedCards = [];
+    let isCheckingCards = false;
+    let matchedPairs = 0;
+
+    // 4단계 변수
+    let defenseHp = 3;
+    let defenseKills = 0;
+    let defenseOrbs = [];
+    let defenseSpawnInterval = null;
+    let defenseAnimationLoop = null;
+
+    // 5단계 변수
+    let moleScore = 0;
+    let moleTimer = 20;
+    let moleInterval = null;
+    let moleTimerInterval = null;
+    let currentActiveMoles = [-1, -1, -1, -1, -1, -1]; 
+
+    // 브라우저 기본 우클릭 메뉴 완벽 차단
+    document.addEventListener('contextmenu', function(e) {
+        e.preventDefault();
+    }, false);
+
+    document.addEventListener('mousedown', function(e) {
+        initAudio();
+        
+        const isRightClick = e.button === 2;
+        playSound(isRightClick ? 'right' : 'left');
+
+        const ripple = document.createElement('div');
+        ripple.className = 'click-ripple';
+        ripple.style.left = e.pageX + 'px';
+        ripple.style.top = e.pageY + 'px';
+
+        if (isRightClick) {
+            ripple.style.border = '4px solid #ec4899';
+            ripple.style.background = 'rgba(236, 72, 153, 0.2)';
+            ripple.style.width = '40px';
+            ripple.style.height = '40px';
+        } else {
+            ripple.style.border = '4px solid #3b82f6';
+            ripple.style.background = 'rgba(59, 130, 246, 0.2)';
+            ripple.style.width = '40px';
+            ripple.style.height = '40px';
+        }
+
+        document.body.appendChild(ripple);
+        setTimeout(() => {
+            ripple.remove();
+        }, 600);
+
+        // 0단계 튜토리얼 마우스 매칭 반응 제어
+        if (currentStage === 0) {
+            const leftGraphic = document.getElementById('virtual-mouse-left');
+            const rightGraphic = document.getElementById('virtual-mouse-right');
+            
+            if (isRightClick) {
+                rightGraphic.classList.remove('bg-white');
+                rightGraphic.classList.add('bg-pink-400', 'text-white');
+                setTimeout(() => {
+                    rightGraphic.classList.remove('bg-pink-400', 'text-white');
+                    rightGraphic.classList.add('bg-white');
+                }, 150);
+                
+                if (tutorialRightCount < 3) {
+                    tutorialRightCount++;
+                    document.getElementById('count-right').innerText = tutorialRightCount;
+                    addScore(10);
+                }
+            } else {
+                leftGraphic.classList.remove('bg-white');
+                leftGraphic.classList.add('bg-blue-400', 'text-white');
+                setTimeout(() => {
+                    leftGraphic.classList.remove('bg-blue-400', 'text-white');
+                    leftGraphic.classList.add('bg-white');
+                }, 150);
+
+                if (tutorialLeftCount < 3) {
+                    tutorialLeftCount++;
+                    document.getElementById('count-left').innerText = tutorialLeftCount;
+                    addScore(10);
+                }
+            }
+
+            checkTutorialCompletion();
+        }
+    });
+
+    document.getElementById('player-name-input').addEventListener('input', function(e) {
+        playerName = e.target.value.trim() || "도토리";
+        document.getElementById('certificate-player-name').innerText = playerName;
+    });
+
+    function addScore(amount) {
+        score += amount;
+        document.getElementById('game-score').innerText = score;
+    }
+
+    function goToStage(stageNum) {
+        document.getElementById('screen-start').classList.add('hidden');
+        document.getElementById('screen-tutorial').classList.add('hidden');
+        document.getElementById('screen-bubble').classList.add('hidden');
+        document.getElementById('screen-garden').classList.add('hidden');
+        document.getElementById('screen-card-match').classList.add('hidden');
+        document.getElementById('screen-magic-defense').classList.add('hidden');
+        document.getElementById('screen-mole').classList.add('hidden');
+        document.getElementById('screen-certificate').classList.add('hidden');
+
+        for (let i = 0; i <= 5; i++) {
+            const btn = document.getElementById(`step-btn-${i}`);
+            if (btn) {
+                if (i === stageNum) {
+                    btn.className = "px-2.5 py-1.5 rounded-full bg-indigo-500 text-white shadow-sm";
+                } else if (i < stageNum) {
+                    btn.className = "px-2.5 py-1.5 rounded-full bg-emerald-500 text-white opacity-80";
+                } else {
+                    btn.className = "px-2.5 py-1.5 rounded-full bg-gray-200 text-gray-500";
+                }
+            }
+        }
+
+        clearInterval(bubbleInterval);
+        clearInterval(moleInterval);
+        clearInterval(moleTimerInterval);
+        clearInterval(defenseSpawnInterval);
+        cancelAnimationFrame(defenseAnimationLoop);
+
+        currentStage = stageNum;
+
+        if (stageNum === 0) {
+            document.getElementById('screen-tutorial').classList.remove('hidden');
+            updateAssistantBubble("이곳은 마법 연습장이라네! 화면 아무 빈 곳을 클릭하여 감을 잡아보게.");
+            tutorialLeftCount = 0;
+            tutorialRightCount = 0;
+            document.getElementById('count-left').innerText = "0";
+            document.getElementById('count-right').innerText = "0";
+            document.getElementById('tutorial-tip').classList.add('hidden');
+            document.getElementById('btn-tutorial-next').disabled = true;
+            document.getElementById('btn-tutorial-next').className = "w-full py-3 bg-gray-300 text-white font-bold rounded-xl shadow-md transition-all cursor-not-allowed";
+        } else if (stageNum === 1) {
+            document.getElementById('screen-bubble').classList.remove('hidden');
+            updateAssistantBubble("1단계 풍선 훈련! 떠오르는 파란 풍선은 좌클릭, 분홍 풍선은 우클릭으로 조준 사격하게!");
+            initStage1();
+        } else if (stageNum === 2) {
+            document.getElementById('screen-garden').classList.remove('hidden');
+            updateAssistantBubble("2단계 마법정원 수련! 씨앗은 우클릭으로 넣고, 자라는 화초는 좌클릭으로 물을 주어라!");
+            initStage2();
+        } else if (stageNum === 3) {
+            document.getElementById('screen-card-match').classList.remove('hidden');
+            updateAssistantBubble("3단계 카드 훈련! 지시에 맞게 정확하게 눌러 카드를 뒤집고 머리를 쓰게나!");
+            initStage3();
+        } else if (stageNum === 4) {
+            document.getElementById('screen-magic-defense').classList.remove('hidden');
+            updateAssistantBubble("4단계 성벽 결계 수비! 침입해오는 얼음(좌클릭)과 화염(우클릭) 구체를 저지하게!");
+            initStage4();
+        } else if (stageNum === 5) {
+            document.getElementById('screen-mole').classList.remove('hidden');
+            updateAssistantBubble("마지막 고비! 두더지들이 들고나오는 지시 문구대로 낚아채주게!");
+            initStage5();
+        } else if (stageNum === 6) {
+            document.getElementById('screen-certificate').classList.remove('hidden');
+            updateAssistantBubble("놀라운 재능이로다! 전 과정을 정복한 정식 마법사 인증서를 발급해주겠네.");
+            
+            const today = new Date();
+            document.getElementById('certificate-date').innerText = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
+            playSound('level-up');
+        }
+    }
+
+    function startGame() {
+        initAudio();
+        goToStage(0);
+    }
+
+    function restartGame() {
+        score = 0;
+        document.getElementById('game-score').innerText = "0";
+        goToStage(0);
+    }
+
+    function updateAssistantBubble(msg) {
+        document.getElementById('assistant-bubble').innerText = msg;
+    }
+
+    function checkTutorialCompletion() {
+        if (tutorialLeftCount >= 3 && tutorialRightCount >= 3) {
+            const nextBtn = document.getElementById('btn-tutorial-next');
+            nextBtn.disabled = false;
+            nextBtn.className = "w-full py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold rounded-xl shadow-lg hover:brightness-105 active:scale-95 transition-all transform animate-bounce cursor-pointer";
+            document.getElementById('tutorial-tip').classList.remove('hidden');
+            updateAssistantBubble("훌륭해! 준비가 끝났으니 파란 단추를 눌러 첫 단계를 개시하세!");
+        }
+    }
+
+    function initStage1() {
+        bubblePopCount = 0;
+        document.getElementById('pop-count').innerText = "0";
+        const container = document.getElementById('bubble-container');
+        container.querySelectorAll('.game-bubble').forEach(b => b.remove());
+
+        bubbleInterval = setInterval(() => {
+            if (bubblePopCount >= maxBubbles) {
+                clearInterval(bubbleInterval);
+                return;
+            }
+            createBubble();
+        }, 1200);
+    }
+
+    function createBubble() {
+        const container = document.getElementById('bubble-container');
+        if (!container) return;
+        const bubble = document.createElement('div');
+        
+        const isRightClickBubble = Math.random() > 0.5;
+        bubble.className = 'game-bubble absolute w-16 h-20 rounded-full flex flex-col items-center justify-center transition-all cursor-pointer select-none border-2 shadow-md';
+        
+        const tail = document.createElement('div');
+        tail.className = 'absolute bottom-[-10px] w-2 h-4 border-l-2 border-r-2';
+        
+        if (isRightClickBubble) {
+            bubble.classList.add('bg-pink-400', 'border-pink-600', 'text-white');
+            bubble.innerHTML = '<span class="text-xs font-bold font-sans">우클릭</span><span class="text-xs">💗</span>';
+            tail.classList.add('border-pink-500');
+        } else {
+            bubble.classList.add('bg-blue-400', 'border-blue-600', 'text-white');
+            bubble.innerHTML = '<span class="text-xs font-bold font-sans">좌클릭</span><span class="text-xs">🔵</span>';
+            tail.classList.add('border-blue-500');
+        }
+        
+        bubble.appendChild(tail);
+
+        const startX = Math.random() * (container.clientWidth - 70);
+        bubble.style.left = startX + 'px';
+        bubble.style.bottom = '0px';
+
+        container.appendChild(bubble);
+
+        let bottomPos = 0;
+        const speed = 1.5 + Math.random() * 2;
+        
+        const moveInterval = setInterval(() => {
+            bottomPos += speed;
+            bubble.style.bottom = bottomPos + 'px';
+
+            if (bottomPos > container.clientHeight) {
+                clearInterval(moveInterval);
+                bubble.remove();
+            }
+        }, 30);
+
+        const hitHandler = function(e, clickType) {
+            e.stopPropagation();
+            e.preventDefault();
+
+            const expectedType = isRightClickBubble ? 'right' : 'left';
+            if (clickType === expectedType) {
+                clearInterval(moveInterval);
+                playSound('pop');
+                
+                bubble.innerHTML = "💥";
+                bubble.style.background = "transparent";
+                bubble.style.borderColor = "transparent";
+                bubble.classList.add('scale-150');
+                
+                setTimeout(() => {
+                    bubble.remove();
+                }, 200);
+
+                bubblePopCount++;
+                document.getElementById('pop-count').innerText = bubblePopCount;
+                addScore(50);
+
+                if (bubblePopCount >= maxBubbles) {
+                    clearInterval(bubbleInterval);
+                    playSound('correct');
+                    updateAssistantBubble("정원 가꾸기를 시작하여 마우스의 기능 배치 규칙을 더 세밀하게 훈련해보세!");
+                    setTimeout(() => {
+                        goToStage(2);
+                    }, 1500);
+                }
+            } else {
+                playSound('wrong');
+                bubble.classList.add('animate-ping');
+                setTimeout(() => {
+                    bubble.classList.remove('animate-ping');
+                }, 150);
+            }
+        };
+
+        bubble.addEventListener('click', (e) => hitHandler(e, 'left'));
+        bubble.addEventListener('contextmenu', (e) => hitHandler(e, 'right'));
+    }
+
+    function initStage2() {
+        potStates = [0, 0, 0];
+        harvestCount = 0;
+        document.getElementById('garden-count').innerText = "0";
+        document.getElementById('garden-progress').style.width = "0%";
+        
+        for (let i = 0; i < 3; i++) {
+            updatePotUI(i);
+        }
+    }
+
+    function updatePotUI(index) {
+        const state = potStates[index];
+        const imgEl = document.getElementById(`pot-img-${index}`);
+        const descEl = document.getElementById(`pot-desc-${index}`);
+        const hintEl = document.getElementById(`pot-hint-${index}`);
+        const potContainer = document.getElementById(`pot-${index}`);
+
+        if (state === 0) {
+            imgEl.innerText = "🟫";
+            descEl.innerText = "비어있는 흙";
+            hintEl.innerText = "🌱 우클릭하여 씨앗심기";
+            hintEl.className = "text-xs bg-pink-500 text-white font-sans px-2.5 py-1 rounded-lg mt-2 animate-pulse font-bold";
+            potContainer.className = "bg-amber-50 hover:bg-amber-100 border-4 border-amber-300 rounded-3xl p-4 flex flex-col items-center justify-between h-56 shadow-md transition-all transform hover:scale-105 cursor-pointer";
+        } else if (state === 1) {
+            imgEl.innerText = "🌱";
+            descEl.innerText = "새싹이 돋았어요!";
+            hintEl.innerText = "💧 좌클릭하여 물주기";
+            hintEl.className = "text-xs bg-blue-500 text-white font-sans px-2.5 py-1 rounded-lg mt-2 animate-pulse font-bold";
+            potContainer.className = "bg-blue-50 hover:bg-blue-100 border-4 border-blue-300 rounded-3xl p-4 flex flex-col items-center justify-between h-56 shadow-md transition-all transform hover:scale-105 cursor-pointer";
+        } else if (state === 2) {
+            imgEl.innerText = "🌸";
+            descEl.innerText = "예쁜 꽃이 피었어요!";
+            hintEl.innerText = "🍎 좌클릭하여 수확하기";
+            hintEl.className = "text-xs bg-emerald-500 text-white font-sans px-2.5 py-1 rounded-lg mt-2 animate-bounce font-bold";
+            potContainer.className = "bg-emerald-50 hover:bg-emerald-100 border-4 border-emerald-300 rounded-3xl p-4 flex flex-col items-center justify-between h-56 shadow-md transition-all transform hover:scale-105 cursor-pointer";
+        }
+    }
+
+    function handlePotClick(index, clickType) {
+        const state = potStates[index];
+
+        if (state === 0) {
+            if (clickType === 'right') {
+                potStates[index] = 1;
+                addScore(30);
+                updatePotUI(index);
+            } else {
+                playSound('wrong');
+            }
+        } else if (state === 1) {
+            if (clickType === 'left') {
+                potStates[index] = 2;
+                addScore(30);
+                updatePotUI(index);
+            } else {
+                playSound('wrong');
+            }
+        } else if (state === 2) {
+            if (clickType === 'left') {
+                potStates[index] = 0;
+                harvestCount++;
+                addScore(100);
+                playSound('correct');
+                
+                document.getElementById('garden-count').innerText = harvestCount;
+                const progressPercent = (harvestCount / 5) * 100;
+                document.getElementById('garden-progress').style.width = `${progressPercent}%`;
+
+                updatePotUI(index);
+
+                if (harvestCount >= 5) {
+                    playSound('level-up');
+                    updateAssistantBubble("놀라워라! 다음 고난도 기억 매칭 훈련 단계로 넘어가세!");
+                    setTimeout(() => {
+                        goToStage(3);
+                    }, 1500);
+                }
+            } else {
+                playSound('wrong');
+            }
+        }
+    }
+
+    function initStage3() {
+        const grid = document.getElementById('card-grid');
+        grid.innerHTML = '';
+        cards = [];
+        flippedCards = [];
+        isCheckingCards = false;
+        matchedPairs = 0;
+        document.getElementById('card-match-count').innerText = "0";
+
+        const emojis = ['🔮', '🪄', '🧪', '📜', '🔮', '🪄', '🧪', '📜'];
+        
+        for (let i = emojis.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [emojis[i], emojis[j]] = [emojis[j], emojis[i]];
+        }
+
+        for (let i = 0; i < 8; i++) {
+            cards.push({
+                id: i,
+                emoji: emojis[i],
+                clickRequired: Math.random() > 0.5 ? 'left' : 'right',
+                isFlipped: false,
+                isMatched: false
+            });
+        }
+
+        cards.forEach((card, idx) => {
+            const cardEl = document.createElement('div');
+            cardEl.id = `card-${idx}`;
+            cardEl.className = "relative h-28 bg-indigo-100 hover:bg-indigo-200 border-4 border-indigo-300 rounded-2xl flex flex-col items-center justify-center cursor-pointer shadow-md transform active:scale-95 transition-all";
+            
+            if (card.clickRequired === 'left') {
+                cardEl.innerHTML = `
+                    <span class="text-3xl text-blue-500 animate-pulse">🔵</span>
+                    <span class="text-xs font-sans font-bold text-blue-700 mt-1">좌클릭!</span>
+                `;
+            } else {
+                cardEl.innerHTML = `
+                    <span class="text-3xl text-pink-500 animate-pulse">🔴</span>
+                    <span class="text-xs font-sans font-bold text-pink-700 mt-1">우클릭!</span>
+                `;
+            }
+
+            cardEl.addEventListener('click', (e) => handleCardInteract(idx, 'left'));
+            cardEl.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                handleCardInteract(idx, 'right');
+            });
+
+            grid.appendChild(cardEl);
+        });
+    }
+
+    function handleCardInteract(index, clickType) {
+        if (isCheckingCards) return;
+        
+        const card = cards[index];
+        if (card.isFlipped || card.isMatched) return;
+
+        const cardEl = document.getElementById(`card-${index}`);
+
+        if (clickType === card.clickRequired) {
+            card.isFlipped = true;
+            playSound('pop');
+            
+            cardEl.className = "relative h-28 bg-white border-4 border-emerald-400 rounded-2xl flex items-center justify-center shadow-lg transition-all scale-105";
+            cardEl.innerHTML = `<span class="text-4xl">${card.emoji}</span>`;
+
+            flippedCards.push(card);
+
+            if (flippedCards.length === 2) {
+                isCheckingCards = true;
+                setTimeout(checkCardMatch, 800);
+            }
+        } else {
+            playSound('wrong');
+            cardEl.classList.add('animate-shake', 'border-red-500');
+            setTimeout(() => {
+                cardEl.classList.remove('animate-shake', 'border-red-500');
+            }, 300);
+        }
+    }
+
+    function checkCardMatch() {
+        const [card1, card2] = flippedCards;
+        const el1 = document.getElementById(`card-${card1.id}`);
+        const el2 = document.getElementById(`card-${card2.id}`);
+
+        if (card1.emoji === card2.emoji) {
+            card1.isMatched = true;
+            card2.isMatched = true;
+            playSound('correct');
+            
+            el1.className = "relative h-28 bg-emerald-50 border-4 border-emerald-500 rounded-2xl flex items-center justify-center shadow-inner opacity-75 cursor-default";
+            el2.className = "relative h-28 bg-emerald-50 border-4 border-emerald-500 rounded-2xl flex items-center justify-center shadow-inner opacity-75 cursor-default";
+            
+            matchedPairs++;
+            document.getElementById('card-match-count').innerText = matchedPairs;
+            addScore(150);
+
+            if (matchedPairs === 4) {
+                playSound('level-up');
+                updateAssistantBubble("지혜로운 두뇌 활동 완료! 4단계 실시간 정령 방어 훈련장으로 이동하게!");
+                setTimeout(() => {
+                    goToStage(4);
+                }, 1500);
+            }
+        } else {
+            card1.isFlipped = false;
+            card2.isFlipped = false;
+            playSound('wrong');
+
+            [card1, card2].forEach(c => {
+                const el = document.getElementById(`card-${c.id}`);
+                el.className = "relative h-28 bg-indigo-100 hover:bg-indigo-200 border-4 border-indigo-300 rounded-2xl flex flex-col items-center justify-center cursor-pointer shadow-md transform active:scale-95 transition-all";
+                if (c.clickRequired === 'left') {
+                    el.innerHTML = `
+                        <span class="text-3xl text-blue-500 animate-pulse">🔵</span>
+                        <span class="text-xs font-sans font-bold text-blue-700 mt-1">좌클릭!</span>
+                    `;
+                } else {
+                    el.innerHTML = `
+                        <span class="text-3xl text-pink-500 animate-pulse">🔴</span>
+                        <span class="text-xs font-sans font-bold text-pink-700 mt-1">우클릭!</span>
+                    `;
+                }
+            });
+        }
+
+        flippedCards = [];
+        isCheckingCards = false;
+    }
+
+    function initStage4() {
+        defenseHp = 3;
+        defenseKills = 0;
+        defenseOrbs = [];
+        document.getElementById('defense-hp-display').innerText = "❤️❤️❤️";
+        document.getElementById('defense-kill-count').innerText = "0";
+
+        const container = document.getElementById('defense-container');
+        container.querySelectorAll('.magic-orb').forEach(o => o.remove());
+
+        defenseSpawnInterval = setInterval(() => {
+            if (defenseKills >= 10 || defenseHp <= 0) return;
+            spawnDefenseOrb();
+        }, 1300);
+
+        updateDefensePhysics();
+    }
+
+    function spawnDefenseOrb() {
+        const container = document.getElementById('defense-container');
+        if (!container) return;
+
+        const orb = document.createElement('div');
+        const orbType = Math.random() > 0.5 ? 'left' : 'right';
+        orb.className = "magic-orb absolute w-10 h-10 rounded-full flex items-center justify-center select-none shadow-lg transition-transform cursor-pointer z-10 font-bold border-2";
+
+        if (orbType === 'left') {
+            orb.classList.add('bg-blue-500', 'border-blue-300', 'text-white');
+            orb.innerHTML = "❄️";
+        } else {
+            orb.classList.add('bg-pink-500', 'border-pink-300', 'text-white');
+            orb.innerHTML = "🔥";
+        }
+
+        const side = Math.floor(Math.random() * 4);
+        let startX, startY;
+        const w = container.clientWidth;
+        const h = container.clientHeight;
+
+        if (side === 0) { startX = Math.random() * w; startY = -10; }
+        else if (side === 1) { startX = w + 10; startY = Math.random() * h; }
+        else if (side === 2) { startX = Math.random() * w; startY = h + 10; }
+        else { startX = -10; startY = Math.random() * h; }
+
+        orb.style.left = startX + 'px';
+        orb.style.top = startY + 'px';
+
+        container.appendChild(orb);
+
+        const orbData = {
+            el: orb,
+            type: orbType,
+            x: startX,
+            y: startY,
+            speed: 0.9 + Math.random() * 0.8
+        };
+
+        const defenseHit = function(e, clickType) {
+            e.stopPropagation();
+            e.preventDefault();
+
+            if (clickType === orbData.type) {
+                playSound('pop');
+                orb.innerHTML = "💥";
+                orb.classList.add('scale-150', 'opacity-0');
+                
+                defenseOrbs = defenseOrbs.filter(o => o !== orbData);
+                setTimeout(() => orb.remove(), 150);
+
+                defenseKills++;
+                document.getElementById('defense-kill-count').innerText = defenseKills;
+                addScore(80);
+
+                if (defenseKills >= 10) {
+                    clearInterval(defenseSpawnInterval);
+                    cancelAnimationFrame(defenseAnimationLoop);
+                    playSound('level-up');
+                    updateAssistantBubble("훌륭한 수비군! 대망의 최종 5단계인 두더지 전용 훈련으로 나아가세!");
+                    setTimeout(() => {
+                        goToStage(5);
+                    }, 1500);
+                }
+            } else {
+                playSound('wrong');
+                orb.classList.add('animate-ping');
+                setTimeout(() => orb.classList.remove('animate-ping'), 150);
+            }
+        };
+
+        orb.addEventListener('mousedown', (e) => {
+            const clickType = e.button === 2 ? 'right' : 'left';
+            defenseHit(e, clickType);
+        });
+
+        defenseOrbs.push(orbData);
+    }
+
+    function updateDefensePhysics() {
+        if (currentStage !== 4 || defenseHp <= 0) return;
+
+        const container = document.getElementById('defense-container');
+        if (!container) return;
+
+        const centerX = container.clientWidth / 2;
+        const centerY = container.clientHeight / 2;
+
+        for (let i = defenseOrbs.length - 1; i >= 0; i--) {
+            const orb = defenseOrbs[i];
+            
+            const dx = centerX - (orb.x + 20);
+            const dy = centerY - (orb.y + 20);
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist < 45) {
+                playSound('hit');
+                orb.el.remove();
+                defenseOrbs.splice(i, 1);
+                
+                const shield = document.getElementById('magic-shield');
+                shield.classList.add('bg-rose-500/50', 'scale-110');
+                setTimeout(() => {
+                    shield.classList.remove('bg-rose-500/50', 'scale-110');
+                }, 150);
+
+                defenseHp--;
+                let heartStr = "";
+                for (let h = 0; h < defenseHp; h++) heartStr += "❤️";
+                if (heartStr === "") heartStr = "💥";
+                document.getElementById('defense-hp-display').innerText = heartStr;
+
+                if (defenseHp <= 0) {
+                    playSound('wrong');
+                    clearInterval(defenseSpawnInterval);
+                    cancelAnimationFrame(defenseAnimationLoop);
+                    updateAssistantBubble("아이고! 성벽 결계가 무너졌네. 힘을 내서 재도전해보세!");
+                    
+                    setTimeout(() => {
+                        initStage4();
+                    }, 2500);
+                }
+            } else {
+                orb.x += (dx / dist) * orb.speed;
+                orb.y += (dy / dist) * orb.speed;
+                orb.el.style.left = orb.x + 'px';
+                orb.el.style.top = orb.y + 'px';
+            }
+        }
+
+        defenseAnimationLoop = requestAnimationFrame(updateDefensePhysics);
+    }
+
+    function initStage5() {
+        moleScore = 0;
+        moleTimer = 20;
+        document.getElementById('mole-score').innerText = "0";
+        document.getElementById('mole-timer').innerText = "20";
+        currentActiveMoles = [-1, -1, -1, -1, -1, -1];
+
+        for (let i = 0; i < 6; i++) {
+            hideMole(i);
+        }
+
+        moleTimerInterval = setInterval(() => {
+            moleTimer--;
+            document.getElementById('mole-timer').innerText = moleTimer;
+            if (moleTimer <= 0) {
+                endMoleStage();
+            }
+        }, 1000);
+
+        moleInterval = setInterval(() => {
+            popRandomMole();
+        }, 900);
+    }
+
+    function popRandomMole() {
+        const emptyHoles = [];
+        for (let i = 0; i < 6; i++) {
+            if (currentActiveMoles[i] === -1) {
+                emptyHoles.push(i);
+            }
+        }
+
+        if (emptyHoles.length === 0) return;
+
+        const targetHole = emptyHoles[Math.floor(Math.random() * emptyHoles.length)];
+        const moleType = Math.random() > 0.5 ? 0 : 1;
+        currentActiveMoles[targetHole] = moleType;
+
+        showMole(targetHole, moleType);
+
+        setTimeout(() => {
+            if (currentActiveMoles[targetHole] === moleType) {
+                hideMole(targetHole);
+            }
+        }, 1500);
+    }
+
+    function showMole(index, type) {
+        const moleEl = document.getElementById(`mole-${index}`);
+        const charEl = moleEl.querySelector('.mole-character');
+        const badgeEl = moleEl.querySelector('.mole-badge');
+
+        if (type === 0) {
+            charEl.innerText = "🐹";
+            badgeEl.innerText = "좌클릭!";
+            badgeEl.className = "mole-badge text-xs px-2.5 py-0.5 rounded-full text-white font-bold bg-blue-500 font-sans mt-1 shadow-md";
+        } else {
+            charEl.innerText = "🐿️";
+            badgeEl.innerText = "우클릭!";
+            badgeEl.className = "mole-badge text-xs px-2.5 py-0.5 rounded-full text-white font-bold bg-pink-500 font-sans mt-1 shadow-md";
+        }
+
+        moleEl.style.bottom = "0";
+    }
+
+    function hideMole(index) {
+        const moleEl = document.getElementById(`mole-${index}`);
+        if (moleEl) {
+            moleEl.style.bottom = "-100%";
+        }
+        currentActiveMoles[index] = -1;
+    }
+
+    function handleMoleClick(index, clickType) {
+        const activeType = currentActiveMoles[index];
+        if (activeType === -1) return;
+
+        const expectedType = activeType === 0 ? 'left' : 'right';
+        if (clickType === expectedType) {
+            playSound('correct');
+            hideMole(index);
+            moleScore++;
+            document.getElementById('mole-score').innerText = moleScore;
+            addScore(100);
+
+            if (moleScore >= 10) {
+                endMoleStage();
+            }
+        } else {
+            playSound('wrong');
+        }
+    }
+
+    function endMoleStage() {
+        clearInterval(moleInterval);
+        clearInterval(moleTimerInterval);
+
+        for (let i = 0; i < 6; i++) {
+            hideMole(i);
+        }
+
+        if (moleScore >= 10) {
+            playSound('level-up');
+            goToStage(6);
+        } else {
+            playSound('wrong');
+            updateAssistantBubble("아깝구만! 한 번 더 수련에 응전하여 통과해보게나!");
+            setTimeout(() => {
+                initStage5();
+            }, 3000);
+        }
+    }
+</script>
+
+</body>
+</html>
